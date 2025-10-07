@@ -40,4 +40,16 @@ return [
         'redirect'      => env('GOOGLE_REDIRECT_URL'),
     ],
 
+    'twilio' => [
+        'sid' => env('TWILIO_SID'),
+        'token' => env('TWILIO_TOKEN'),
+        'phone' => env('TWILIO_PHONE'),
+    ],
+
+    'paypal' => [
+        'client_id' => env('PAYPAL_CLIENT_ID'),
+        'client_secret' => env('PAYPAL_CLIENT_SECRET'),
+        'mode' => env('PAYPAL_MODE', 'sandbox'), // sandbox or live
+    ],
+
 ];

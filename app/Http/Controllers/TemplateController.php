@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Template;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class TemplateController extends Controller
 {
@@ -20,6 +21,7 @@ class TemplateController extends Controller
 
     public function store(Request $request)
     {
+        // Log::info('template comes', ['data' => $request->all()]);
         $data = $request->validate([
             'company_id' => 'required|exists:company_details,id',
             'title' => 'required|string|max:255',

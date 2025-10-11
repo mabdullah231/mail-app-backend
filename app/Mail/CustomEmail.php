@@ -7,6 +7,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
+use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Queue\SerializesModels;
 use App\Models\CompanyDetail;
 
@@ -17,15 +18,17 @@ class CustomEmail extends Mailable
     public $emailContent;
     public $emailSubject;
     public $company;
+    public $attachments;
 
     /**
      * Create a new message instance.
      */
-    public function __construct($content, $subject, CompanyDetail $company)
+    public function __construct($content, $subject, CompanyDetail $company, $attachments = [])
     {
         $this->emailContent = $content;
         $this->emailSubject = $subject;
         $this->company = $company;
+        $this->attachments = $attachments;
     }
 
     /**
@@ -58,6 +61,19 @@ class CustomEmail extends Mailable
      */
     public function attachments(): array
     {
-        return [];
+        $attachments = [];
+        
+        if (!empty($this->attachments)) {
+            foreach ($this->attachments as $attachment) {
+                if (is_string($attachment) && file_exists(public_path($attachment))) {
+                    $attachments[] = Attachment::fromPath(public_path($attachment));
+                } elseif (is_array($attachment) && isset($attachment['path']) && file_exists(public_path($attachment['path']))) {
+                    $attachments[] = Attachment::fromPath(public_path($attachment['path']))
+                        ->as($attachment['name'] ?? basename($attachment['path']));
+                }
+            }
+        }
+        
+        return $attachments;
     }
 }

@@ -130,10 +130,13 @@ class AutomationController extends Controller
 
         $emailContent = $this->processEmailTemplate($template, $customer, $company);
         $subject = "Reminder: " . $template->title;
+        
+        // Get attachments from template
+        $attachments = $template->attachments ?? [];
 
         try {
             Mail::to($customer->email)
-                ->send(new CustomEmail($emailContent, $subject, $company));
+                ->send(new CustomEmail($emailContent, $subject, $company, $attachments));
 
             EmailLog::create([
                 'customer_id' => $customer->id,

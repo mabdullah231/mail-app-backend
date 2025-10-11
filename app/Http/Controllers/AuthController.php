@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Jobs\VerifyEmailJob;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
@@ -66,8 +67,8 @@ class AuthController extends Controller
         $user = User::find($user_id);
         $code = rand(100000, 999999);
         
-        // TODO: Uncomment when email job is ready
-        // VerifyEmailJob::dispatch(['email' => $user->email, 'code' => $code]);
+        // Dispatch email job
+        VerifyEmailJob::dispatch($user->email, $code);
         
         $user->update(['code' => $code]);
         
@@ -140,12 +141,23 @@ class AuthController extends Controller
                 ], 422);
             }
             
-            // if (!$user->is_active) {
-            //     Auth::logout();
-            //     return response()->json([
-            //         'message' => 'Contact admin, your account is inactive.'
-            //     ], 403);
-            // }
+            if (property_exists($user, 'is_active') && !$user->is_active) {
+                Auth::logout();
+                return response()->json([
+                    'message' => 'Contact admin, your account is inactive.'
+                ], 403);
+            }
+            
+            // Check if 2FA is enabled
+            if ($user->google2fa_enabled) {
+                $token = $user->createToken('user_token')->plainTextToken;
+                return response()->json([
+                    'message' => '2FA verification required.',
+                    'code' => '2FA_REQUIRED',
+                    'user' => $user->load('companyDetail'),
+                    'token' => $token
+                ], 422);
+            }
             
             $token = $user->createToken('user_token')->plainTextToken;
             

@@ -8,21 +8,10 @@ use App\Models\Customer;
 use App\Models\Template;
 use App\Models\SmsLog;
 use App\Models\CompanyDetail;
-use Twilio\Rest\Client;
+use Illuminate\Support\Facades\Log;
 
 class SmsController extends Controller
 {
-    private $twilio;
-
-    public function __construct()
-    {
-        // Initialize Twilio client (you'll need to add Twilio credentials to .env)
-        $this->twilio = new Client(
-            config('services.twilio.sid'),
-            config('services.twilio.token')
-        );
-    }
-
     /**
      * Send SMS to single customer
      */
@@ -30,8 +19,9 @@ class SmsController extends Controller
     {
         $request->validate([
             'customer_id' => 'required|exists:customers,id',
-            'template_id' => 'required|exists:templates,id',
-            'message' => 'required|string|max:1600'
+            'template_id' => 'nullable|exists:templates,id',
+            'custom_message' => 'nullable|string|max:1600',
+            'message' => 'nullable|string|max:1600' // For backward compatibility
         ]);
 
         $user = Auth::user();
@@ -47,10 +37,14 @@ class SmsController extends Controller
         }
 
         $customer = Customer::findOrFail($request->customer_id);
-        $template = Template::findOrFail($request->template_id);
+        $template = $request->template_id ? Template::findOrFail($request->template_id) : null;
 
         // Verify ownership and SMS opt-in
-        if ($customer->company_id !== $company->id || $template->company_id !== $company->id) {
+        if ($customer->company_id !== $company->id) {
+            return response()->json(['message' => 'Access denied'], 403);
+        }
+
+        if ($template && $template->company_id !== $company->id) {
             return response()->json(['message' => 'Access denied'], 403);
         }
 
@@ -58,25 +52,27 @@ class SmsController extends Controller
             return response()->json(['message' => 'Customer has not opted in for SMS or no phone number'], 400);
         }
 
-        $smsContent = $this->processTemplate($template, $customer, $company);
-        
+        // Use custom message or template
+        if ($request->custom_message) {
+            $smsContent = $request->custom_message;
+        } elseif ($template) {
+            $smsContent = $this->processTemplate($template, $customer, $company);
+        } else {
+            return response()->json(['message' => 'Either template or custom message is required'], 400);
+        }
+
         try {
-            $message = $this->twilio->messages->create(
-                $customer->phone,
-                [
-                    'from' => config('services.twilio.phone'),
-                    'body' => $smsContent
-                ]
-            );
+            // Mock SMS sending - replace with actual Twilio in production
+            $messageId = $this->sendMockSms($customer->phone, $smsContent);
 
             // Log the SMS
             SmsLog::create([
                 'customer_id' => $customer->id,
-                'template_id' => $template->id,
+                'template_id' => $template ? $template->id : null,
                 'message' => $smsContent,
                 'status' => 'sent',
                 'sent_at' => now(),
-                'provider_id' => $message->sid
+                'provider_id' => $messageId
             ]);
 
             return response()->json(['message' => 'SMS sent successfully']);
@@ -84,7 +80,7 @@ class SmsController extends Controller
         } catch (\Exception $e) {
             SmsLog::create([
                 'customer_id' => $customer->id,
-                'template_id' => $template->id,
+                'template_id' => $template ? $template->id : null,
                 'message' => $smsContent,
                 'status' => 'failed',
                 'error_message' => $e->getMessage()
@@ -102,8 +98,8 @@ class SmsController extends Controller
         $request->validate([
             'customer_ids' => 'required|array',
             'customer_ids.*' => 'exists:customers,id',
-            'template_id' => 'required|exists:templates,id',
-            'message' => 'required|string|max:1600'
+            'template_id' => 'nullable|exists:templates,id',
+            'custom_message' => 'nullable|string|max:1600'
         ]);
 
         $user = Auth::user();
@@ -128,33 +124,37 @@ class SmsController extends Controller
             return response()->json(['message' => 'SMS limit exceeded'], 429);
         }
 
-        $template = Template::where('id', $request->template_id)
+        $template = $request->template_id ? Template::where('id', $request->template_id)
                           ->where('company_id', $company->id)
                           ->where('type', 'sms')
-                          ->firstOrFail();
+                          ->first() : null;
+
+        // Validate that we have either template or custom message
+        if (!$template && !$request->custom_message) {
+            return response()->json(['message' => 'Either template or custom message is required'], 400);
+        }
 
         $sent = 0;
         $failed = 0;
 
         foreach ($customers as $customer) {
-            $smsContent = $this->processTemplate($template, $customer, $company);
+            // Use custom message or template
+            if ($request->custom_message) {
+                $smsContent = $request->custom_message;
+            } else {
+                $smsContent = $this->processTemplate($template, $customer, $company);
+            }
             
             try {
-                $message = $this->twilio->messages->create(
-                    $customer->phone,
-                    [
-                        'from' => config('services.twilio.phone'),
-                        'body' => $smsContent
-                    ]
-                );
+                $messageId = $this->sendMockSms($customer->phone, $smsContent);
 
                 SmsLog::create([
                     'customer_id' => $customer->id,
-                    'template_id' => $template->id,
+                    'template_id' => $template ? $template->id : null,
                     'message' => $smsContent,
                     'status' => 'sent',
                     'sent_at' => now(),
-                    'provider_id' => $message->sid
+                    'provider_id' => $messageId
                 ]);
 
                 $sent++;
@@ -162,7 +162,7 @@ class SmsController extends Controller
             } catch (\Exception $e) {
                 SmsLog::create([
                     'customer_id' => $customer->id,
-                    'template_id' => $template->id,
+                    'template_id' => $template ? $template->id : null,
                     'message' => $smsContent,
                     'status' => 'failed',
                     'error_message' => $e->getMessage()
@@ -177,6 +177,39 @@ class SmsController extends Controller
             'sent' => $sent,
             'failed' => $failed
         ]);
+    }
+
+    /**
+     * Mock SMS sending - replace with actual Twilio in production
+     */
+    private function sendMockSms($phone, $message)
+    {
+        // Simulate SMS sending delay
+        sleep(1);
+        
+        // For development, just log the SMS instead of actually sending
+        Log::info("Mock SMS sent to {$phone}: {$message}");
+        
+        // Generate a mock message ID
+        return 'mock_' . uniqid();
+        
+        // Uncomment below to use real Twilio when credentials are available
+        /*
+        $twilio = new \Twilio\Rest\Client(
+            config('services.twilio.sid'),
+            config('services.twilio.token')
+        );
+
+        $message = $twilio->messages->create(
+            $phone,
+            [
+                'from' => config('services.twilio.phone'),
+                'body' => $message
+            ]
+        );
+
+        return $message->sid;
+        */
     }
 
     /**
@@ -197,7 +230,7 @@ class SmsController extends Controller
         // Add branding if not removed (shorter for SMS)
         $subscription = $company->subscription;
         if (!$subscription || !$subscription->canRemoveBranding()) {
-            $content .= ' - Powered by Email Zus';
+            $content .= ' - Powered by Email ZUS';
         }
 
         return $content;

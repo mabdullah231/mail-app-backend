@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Customer;
+use App\Services\PhoneService;
 use Illuminate\Http\Request;
 
 class CustomerController extends Controller
@@ -36,6 +37,11 @@ class CustomerController extends Controller
             'unsubscribe_option' => 'boolean',
         ]);
 
+        // Normalize phone number to E.164 format
+        if (!empty($data['phone'])) {
+            $data['phone'] = PhoneService::normalizeToE164($data['phone'], $data['country'] ?? 'US');
+        }
+
         $customer = Customer::create($data);
 
         return response()->json($customer, 201);
@@ -63,6 +69,11 @@ class CustomerController extends Controller
             'reminder_days_after' => 'nullable|integer|min:0|max:90',
             'unsubscribe_option' => 'boolean',
         ]);
+
+        // Normalize phone number to E.164 format
+        if (!empty($data['phone'])) {
+            $data['phone'] = PhoneService::normalizeToE164($data['phone'], $data['country'] ?? 'US');
+        }
 
         $customer->update($data);
 

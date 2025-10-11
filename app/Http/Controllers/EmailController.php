@@ -47,9 +47,12 @@ class EmailController extends Controller
 
         $emailContent = $this->processTemplate($template, $customer, $company);
         
+        // Get attachments from template
+        $attachments = $template->attachments ?? [];
+        
         try {
             Mail::to($customer->email)
-                ->send(new CustomEmail($emailContent, $request->subject, $company));
+                ->send(new CustomEmail($emailContent, $request->subject, $company, $attachments));
 
             // Log the email
             EmailLog::create([
@@ -117,9 +120,12 @@ class EmailController extends Controller
         foreach ($customers as $customer) {
             $emailContent = $this->processTemplate($template, $customer, $company);
             
+            // Get attachments from template
+            $attachments = $template->attachments ?? [];
+            
             try {
                 Mail::to($customer->email)
-                    ->send(new CustomEmail($emailContent, $request->subject, $company));
+                    ->send(new CustomEmail($emailContent, $request->subject, $company, $attachments));
 
                 EmailLog::create([
                     'customer_id' => $customer->id,
@@ -189,9 +195,12 @@ class EmailController extends Controller
         foreach ($customers as $customer) {
             $emailContent = $this->processTemplate($template, $customer, $company);
             
+            // Get attachments from template
+            $attachments = $template->attachments ?? [];
+            
             try {
                 Mail::to($customer->email)
-                    ->send(new CustomEmail($emailContent, $request->subject, $company));
+                    ->send(new CustomEmail($emailContent, $request->subject, $company, $attachments));
 
                 EmailLog::create([
                     'customer_id' => $customer->id,

@@ -21,16 +21,30 @@ class TemplateController extends Controller
 
     public function store(Request $request)
     {
-        // Log::info('template comes', ['data' => $request->all()]);
         $data = $request->validate([
             'company_id' => 'required|exists:company_details,id',
             'title' => 'required|string|max:255',
             'body_html' => 'required|string',
             'placeholders' => 'nullable|array',
             'attachments' => 'nullable|array',
-            'type' => 'in:email,sms',
+            'type' => 'required|in:email,sms', // Changed to required
             'is_default' => 'boolean',
         ]);
+
+        // Enforce ownership: the authenticated user's company must match
+        $user = $request->user();
+        $company = $user?->companyDetail;
+        if (!$company || (int)$company->id !== (int)$data['company_id']) {
+            return response()->json(['message' => 'Access denied'], 403);
+        }
+
+        // Enforce template limit based on subscription or company limits
+        $existingCount = Template::where('company_id', $company->id)->count();
+        $subscription = $company->subscription;
+        $limit = $subscription ? $subscription->getTemplateLimit() : 3;
+        if ($existingCount >= $limit) {
+            return response()->json(['message' => 'Template limit reached'], 429);
+        }
 
         $template = Template::create($data);
 
@@ -49,9 +63,16 @@ class TemplateController extends Controller
             'body_html' => 'sometimes|required|string',
             'placeholders' => 'nullable|array',
             'attachments' => 'nullable|array',
-            'type' => 'in:email,sms',
+            'type' => 'sometimes|required|in:email,sms', // Added sometimes|required
             'is_default' => 'boolean',
         ]);
+
+        // Enforce ownership
+        $user = $request->user();
+        $company = $user?->companyDetail;
+        if (!$company || (int)$company->id !== (int)$template->company_id) {
+            return response()->json(['message' => 'Access denied'], 403);
+        }
 
         $template->update($data);
 
@@ -60,6 +81,13 @@ class TemplateController extends Controller
 
     public function destroy(Template $template)
     {
+        // Enforce ownership
+        $user = request()->user();
+        $company = $user?->companyDetail;
+        if (!$company || (int)$company->id !== (int)$template->company_id) {
+            return response()->json(['message' => 'Access denied'], 403);
+        }
+
         $template->delete();
         return response()->json(['message' => 'Template deleted successfully']);
     }

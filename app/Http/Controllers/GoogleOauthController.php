@@ -40,7 +40,7 @@ class GoogleOauthController extends Controller
         $token = $user->createToken('AuthToken')->plainTextToken;
     
         // Add company_detail key explicitly in the object
-        $user->company_detail = $user->company;
+        $user->company_detail = $user->companyDetail;
     
         return redirect("http://localhost:5173/auth/callback?token={$token}&user=" . urlencode(json_encode($user)));
     }    

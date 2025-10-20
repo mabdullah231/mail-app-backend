@@ -63,10 +63,19 @@ class SmsController extends Controller
 
         try {
             // Mock SMS sending - replace with actual Twilio in production
+            Log::info('SMS sendSingle: preparing', [
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'template_id' => $template ? $template->id : null,
+                'to' => $customer->phone,
+                'message' => $smsContent,
+            ]);
+
             $messageId = $this->sendMockSms($customer->phone, $smsContent);
 
             // Log the SMS
             SmsLog::create([
+                'company_id' => $company->id,
                 'customer_id' => $customer->id,
                 'template_id' => $template ? $template->id : null,
                 'message' => $smsContent,
@@ -75,15 +84,31 @@ class SmsController extends Controller
                 'provider_id' => $messageId
             ]);
 
+            Log::info('SMS sendSingle: sent', [
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'template_id' => $template ? $template->id : null,
+                'to' => $customer->phone,
+                'provider_id' => $messageId,
+            ]);
+
             return response()->json(['message' => 'SMS sent successfully']);
 
         } catch (\Exception $e) {
+            Log::error('SMS sendSingle: failed', [
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'template_id' => $template ? $template->id : null,
+                'to' => $customer->phone,
+                'error' => $e->getMessage(),
+            ]);
             SmsLog::create([
+                'company_id' => $company->id,
                 'customer_id' => $customer->id,
                 'template_id' => $template ? $template->id : null,
                 'message' => $smsContent,
                 'status' => 'failed',
-                'error_message' => $e->getMessage()
+                'response' => $e->getMessage()
             ]);
 
             return response()->json(['message' => 'Failed to send SMS'], 500);
@@ -146,9 +171,18 @@ class SmsController extends Controller
             }
             
             try {
+                Log::info('SMS sendBulk: preparing', [
+                    'company_id' => $company->id,
+                    'customer_id' => $customer->id,
+                    'template_id' => $template ? $template->id : null,
+                    'to' => $customer->phone,
+                    'message' => $smsContent,
+                ]);
+
                 $messageId = $this->sendMockSms($customer->phone, $smsContent);
 
                 SmsLog::create([
+                    'company_id' => $company->id,
                     'customer_id' => $customer->id,
                     'template_id' => $template ? $template->id : null,
                     'message' => $smsContent,
@@ -157,15 +191,31 @@ class SmsController extends Controller
                     'provider_id' => $messageId
                 ]);
 
+                Log::info('SMS sendBulk: sent', [
+                    'company_id' => $company->id,
+                    'customer_id' => $customer->id,
+                    'template_id' => $template ? $template->id : null,
+                    'to' => $customer->phone,
+                    'provider_id' => $messageId,
+                ]);
+
                 $sent++;
 
             } catch (\Exception $e) {
+                Log::error('SMS sendBulk: failed', [
+                    'company_id' => $company->id,
+                    'customer_id' => $customer->id,
+                    'template_id' => $template ? $template->id : null,
+                    'to' => $customer->phone,
+                    'error' => $e->getMessage(),
+                ]);
                 SmsLog::create([
+                    'company_id' => $company->id,
                     'customer_id' => $customer->id,
                     'template_id' => $template ? $template->id : null,
                     'message' => $smsContent,
                     'status' => 'failed',
-                    'error_message' => $e->getMessage()
+                    'response' => $e->getMessage()
                 ]);
 
                 $failed++;

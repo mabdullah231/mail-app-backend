@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 use App\Models\Customer;
 use App\Models\Template;
 use App\Models\EmailLog;
@@ -51,11 +52,20 @@ class EmailController extends Controller
         $attachments = $template->attachments ?? [];
         
         try {
+            Log::info('Email sendSingle: preparing', [
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'template_id' => $template->id,
+                'subject' => $request->subject,
+                'to' => $customer->email,
+            ]);
+
             Mail::to($customer->email)
                 ->send(new CustomEmail($emailContent, $request->subject, $company, $attachments));
 
             // Log the email
             EmailLog::create([
+                'company_id' => $company->id,
                 'customer_id' => $customer->id,
                 'template_id' => $template->id,
                 'subject' => $request->subject,
@@ -63,15 +73,33 @@ class EmailController extends Controller
                 'sent_at' => now()
             ]);
 
+            Log::info('Email sendSingle: sent', [
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'template_id' => $template->id,
+                'subject' => $request->subject,
+                'to' => $customer->email,
+            ]);
+
             return response()->json(['message' => 'Email sent successfully']);
 
         } catch (\Exception $e) {
+            Log::error('Email sendSingle: failed', [
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'template_id' => $template->id,
+                'subject' => $request->subject,
+                'to' => $customer->email,
+                'error' => $e->getMessage(),
+            ]);
+
             EmailLog::create([
+                'company_id' => $company->id,
                 'customer_id' => $customer->id,
                 'template_id' => $template->id,
                 'subject' => $request->subject,
                 'status' => 'failed',
-                'error_message' => $e->getMessage()
+                'response' => $e->getMessage()
             ]);
 
             return response()->json(['message' => 'Failed to send email'], 500);
@@ -124,10 +152,19 @@ class EmailController extends Controller
             $attachments = $template->attachments ?? [];
             
             try {
+                Log::info('Email sendBulk: preparing', [
+                    'company_id' => $company->id,
+                    'customer_id' => $customer->id,
+                    'template_id' => $template->id,
+                    'subject' => $request->subject,
+                    'to' => $customer->email,
+                ]);
+
                 Mail::to($customer->email)
                     ->send(new CustomEmail($emailContent, $request->subject, $company, $attachments));
 
                 EmailLog::create([
+                    'company_id' => $company->id,
                     'customer_id' => $customer->id,
                     'template_id' => $template->id,
                     'subject' => $request->subject,
@@ -135,15 +172,33 @@ class EmailController extends Controller
                     'sent_at' => now()
                 ]);
 
+                Log::info('Email sendBulk: sent', [
+                    'company_id' => $company->id,
+                    'customer_id' => $customer->id,
+                    'template_id' => $template->id,
+                    'subject' => $request->subject,
+                    'to' => $customer->email,
+                ]);
+
                 $sent++;
 
             } catch (\Exception $e) {
+                Log::error('Email sendBulk: failed', [
+                    'company_id' => $company->id,
+                    'customer_id' => $customer->id,
+                    'template_id' => $template->id,
+                    'subject' => $request->subject,
+                    'to' => $customer->email,
+                    'error' => $e->getMessage(),
+                ]);
+
                 EmailLog::create([
+                    'company_id' => $company->id,
                     'customer_id' => $customer->id,
                     'template_id' => $template->id,
                     'subject' => $request->subject,
                     'status' => 'failed',
-                    'error_message' => $e->getMessage()
+                    'response' => $e->getMessage()
                 ]);
 
                 $failed++;
@@ -199,10 +254,19 @@ class EmailController extends Controller
             $attachments = $template->attachments ?? [];
             
             try {
+                Log::info('Email sendToAll: preparing', [
+                    'company_id' => $company->id,
+                    'customer_id' => $customer->id,
+                    'template_id' => $template->id,
+                    'subject' => $request->subject,
+                    'to' => $customer->email,
+                ]);
+
                 Mail::to($customer->email)
                     ->send(new CustomEmail($emailContent, $request->subject, $company, $attachments));
 
                 EmailLog::create([
+                    'company_id' => $company->id,
                     'customer_id' => $customer->id,
                     'template_id' => $template->id,
                     'subject' => $request->subject,
@@ -210,15 +274,33 @@ class EmailController extends Controller
                     'sent_at' => now()
                 ]);
 
+                Log::info('Email sendToAll: sent', [
+                    'company_id' => $company->id,
+                    'customer_id' => $customer->id,
+                    'template_id' => $template->id,
+                    'subject' => $request->subject,
+                    'to' => $customer->email,
+                ]);
+
                 $sent++;
 
             } catch (\Exception $e) {
+                Log::error('Email sendToAll: failed', [
+                    'company_id' => $company->id,
+                    'customer_id' => $customer->id,
+                    'template_id' => $template->id,
+                    'subject' => $request->subject,
+                    'to' => $customer->email,
+                    'error' => $e->getMessage(),
+                ]);
+
                 EmailLog::create([
+                    'company_id' => $company->id,
                     'customer_id' => $customer->id,
                     'template_id' => $template->id,
                     'subject' => $request->subject,
                     'status' => 'failed',
-                    'error_message' => $e->getMessage()
+                    'response' => $e->getMessage()
                 ]);
 
                 $failed++;
@@ -250,16 +332,44 @@ class EmailController extends Controller
         $content = str_replace('{{company.name}}', $company->name, $content);
         $content = str_replace('{{company.address}}', $company->address, $content);
 
+        // Also replace generic placeholders and whitespace-tolerant variants
+        $placeholderMap = [
+            // explicit dot-notated keys
+            'customer.name' => $customer->name,
+            'customer.email' => $customer->email,
+            'customer.phone' => $customer->phone ?? '',
+            'customer.address' => $customer->address ?? '',
+            'customer.country' => $customer->country ?? '',
+            'company.name' => $company->name,
+            'company.address' => $company->address,
+            // generic synonyms often used in templates
+            'name' => $customer->name,
+            'email' => $customer->email,
+            'company' => $company->name,
+            // sender/recipient synonyms
+            'recipient.name' => $customer->name,
+            'recipient.email' => $customer->email,
+            'sender.name' => $company->name,
+            'sender.email' => $company->business_email ?? config('mail.from.address'),
+        ];
+        foreach ($placeholderMap as $key => $value) {
+            $content = preg_replace('/{{\s*' . preg_quote($key, '/') . '\s*}}/i', $value ?? '', $content);
+        }
+
         // Add company logo if exists
         if ($company->logo) {
             $logoUrl = url($company->logo);
             $content = str_replace('{{company.logo}}', "<img src='$logoUrl' alt='Company Logo' style='max-width: 200px;'>", $content);
+            // whitespace-tolerant variant
+            $content = preg_replace('/{{\s*company\.logo\s*}}/i', "<img src='$logoUrl' alt='Company Logo' style='max-width: 200px;'>", $content);
         }
 
         // Add company signature if exists
         if ($company->signature) {
             $signatureUrl = url($company->signature);
             $content = str_replace('{{company.signature}}', "<img src='$signatureUrl' alt='Signature' style='max-width: 300px;'>", $content);
+            // whitespace-tolerant variant
+            $content = preg_replace('/{{\s*company\.signature\s*}}/i', "<img src='$signatureUrl' alt='Signature' style='max-width: 300px;'>", $content);
         }
 
         // Add branding if not removed

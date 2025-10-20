@@ -35,9 +35,16 @@ class User extends Authenticatable
     ];
 
 
+    
+
+      public function company_detail()
+    {
+        return $this->hasOne(CompanyDetail::class, 'user_id');
+    }
+
     public function companyDetail()
     {
-        return $this->hasOne(CompanyDetail::class);
+        return $this->hasOne(CompanyDetail::class, 'user_id');
     }
 
 

@@ -5,6 +5,7 @@ use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\TemplateController;
 use App\Http\Controllers\ReminderController;
+use App\Http\Controllers\NotificationRuleController; // Add this line
 use App\Http\Controllers\EmailController;
 use App\Http\Controllers\SmsController;
 use App\Http\Controllers\SubscriptionController;
@@ -86,6 +87,9 @@ Route::middleware(['auth:sanctum', '2fa'])->group(function () {
     // Template Management Routes
     Route::apiResource('templates', TemplateController::class);
     
+    // Notification Rules Routes - ADD THIS SECTION
+    Route::apiResource('notification-rules', NotificationRuleController::class);
+    
     // Reminder Routes
     Route::apiResource('reminders', ReminderController::class);
     Route::patch('/reminders/{reminder}/toggle-status', [ReminderController::class, 'toggleStatus']);
@@ -101,7 +105,6 @@ Route::middleware(['auth:sanctum', '2fa'])->group(function () {
     });
 
     // SMS Sending Routes
-   // Increase rate limits for development
     Route::prefix('sms')->middleware('company.rate.limit:20,1')->group(function () {
         Route::post('/send-single', [SmsController::class, 'sendSingle']);
         Route::post('/send-bulk', [SmsController::class, 'sendBulk']);

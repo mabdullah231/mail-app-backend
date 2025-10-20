@@ -8,6 +8,7 @@ use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Mail\Mailables\Attachment;
+use Illuminate\Mail\Mailables\Address;
 use Illuminate\Queue\SerializesModels;
 use App\Models\CompanyDetail;
 
@@ -36,12 +37,32 @@ class CustomEmail extends Mailable
      */
     public function envelope(): Envelope
     {
-        // Use company's business email if available, otherwise use default
-        $fromEmail = $this->company->business_email ?? config('mail.from.address');
+        // Resolve an authorized "from" address; set reply-to to the company's email
+        $mailerFrom = config('mail.from.address');
+        $companyEmail = $this->company->business_email ?? null;
         $fromName = $this->company->name ?? config('mail.from.name');
 
+        // Default to the mailer from address
+        $fromEmail = $mailerFrom;
+
+        // If the company's email domain matches the mailer domain, allow using it as the sender
+        if (!empty($companyEmail)) {
+            $companyDomain = substr(strrchr($companyEmail, '@'), 1) ?: null;
+            $mailerDomain = substr(strrchr($mailerFrom, '@'), 1) ?: null;
+            if ($companyDomain && $mailerDomain && strcasecmp($companyDomain, $mailerDomain) === 0) {
+                $fromEmail = $companyEmail;
+            }
+        }
+
+        // Use reply-to for the company email when it's different from the authorized sender
+        $replyTo = [];
+        if (!empty($companyEmail) && strcasecmp($companyEmail, $fromEmail) !== 0) {
+            $replyTo[] = new Address($companyEmail, $fromName);
+        }
+
         return new Envelope(
-            from: $fromEmail,
+            from: new Address($fromEmail, $fromName),
+            replyTo: $replyTo,
             subject: $this->emailSubject,
         );
     }

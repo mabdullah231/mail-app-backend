@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Carbon;
 use App\Models\Customer;
 use App\Models\Template;
 use App\Models\Reminder;
@@ -14,6 +13,7 @@ use App\Models\SmsLog;
 use App\Mail\CustomEmail;
 use Twilio\Rest\Client;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class AutomationController extends Controller
 {
@@ -135,10 +135,19 @@ class AutomationController extends Controller
         $attachments = $template->attachments ?? [];
 
         try {
+            Log::info('Automation sendReminderEmail: preparing', [
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'template_id' => $template->id,
+                'subject' => $subject,
+                'to' => $customer->email,
+            ]);
+
             Mail::to($customer->email)
                 ->send(new CustomEmail($emailContent, $subject, $company, $attachments));
 
             EmailLog::create([
+                'company_id' => $company->id,
                 'customer_id' => $customer->id,
                 'template_id' => $template->id,
                 'subject' => $subject,
@@ -147,13 +156,31 @@ class AutomationController extends Controller
                 'is_automated' => true
             ]);
 
+            Log::info('Automation sendReminderEmail: sent', [
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'template_id' => $template->id,
+                'subject' => $subject,
+                'to' => $customer->email,
+            ]);
+
         } catch (\Exception $e) {
+            Log::error('Automation sendReminderEmail: failed', [
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'template_id' => $template->id,
+                'subject' => $subject,
+                'to' => $customer->email,
+                'error' => $e->getMessage(),
+            ]);
+
             EmailLog::create([
+                'company_id' => $company->id,
                 'customer_id' => $customer->id,
                 'template_id' => $template->id,
                 'subject' => $subject,
                 'status' => 'failed',
-                'error_message' => $e->getMessage(),
+                'response' => $e->getMessage(),
                 'is_automated' => true
             ]);
         }
@@ -172,6 +199,15 @@ class AutomationController extends Controller
         $smsContent = $this->processSmsTemplate($template, $customer, $company);
 
         try {
+            Log::info('Automation sendReminderSms: preparing', [
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'template_id' => $template->id,
+                'to' => $customer->phone,
+                'from' => config('services.twilio.phone'),
+                'message' => $smsContent,
+            ]);
+
             $twilio = new Client(
                 config('services.twilio.sid'),
                 config('services.twilio.token')
@@ -184,8 +220,16 @@ class AutomationController extends Controller
                     'body' => $smsContent
                 ]
             );
+            Log::info('Automation sendReminderSms: sent', [
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'template_id' => $template->id,
+                'to' => $customer->phone,
+                'provider_id' => $message->sid
+            ]);
 
             SmsLog::create([
+                'company_id' => $company->id,
                 'customer_id' => $customer->id,
                 'template_id' => $template->id,
                 'message' => $smsContent,
@@ -196,12 +240,21 @@ class AutomationController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Automation sendReminderSms: failed', [
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'template_id' => $template->id,
+                'to' => $customer->phone,
+                'error' => $e->getMessage(),
+            ]);
+
             SmsLog::create([
+                'company_id' => $company->id,
                 'customer_id' => $customer->id,
                 'template_id' => $template->id,
                 'message' => $smsContent,
                 'status' => 'failed',
-                'error_message' => $e->getMessage(),
+                'response' => $e->getMessage(),
                 'is_automated' => true
             ]);
         }
@@ -311,27 +364,43 @@ class AutomationController extends Controller
     {
         $content = $template->body_html;
 
-        // Replace customer placeholders
-        $content = str_replace('{{customer.name}}', $customer->name, $content);
-        $content = str_replace('{{customer.email}}', $customer->email, $content);
-        $content = str_replace('{{customer.phone}}', $customer->phone ?? '', $content);
-        $content = str_replace('{{customer.address}}', $customer->address ?? '', $content);
-        $content = str_replace('{{customer.country}}', $customer->country ?? '', $content);
+        $placeholderMap = [
+            // canonical
+            'customer.name' => $customer->name,
+            'customer.email' => $customer->email,
+            'customer.phone' => $customer->phone ?? '',
+            'customer.address' => $customer->address ?? '',
+            'customer.country' => $customer->country ?? '',
+            'company.name' => $company->name,
+            'company.address' => $company->address,
+            // generic synonyms
+            'name' => $customer->name,
+            'email' => $customer->email,
+            'company' => $company->name,
+            'recipient.name' => $customer->name,
+            'recipient.email' => $customer->email,
+            'sender.name' => $company->name,
+            'sender.email' => $company->business_email ?? config('mail.from.address'),
+        ];
 
-        // Replace company placeholders
-        $content = str_replace('{{company.name}}', $company->name, $content);
-        $content = str_replace('{{company.address}}', $company->address, $content);
-
-        // Add company logo if exists
-        if ($company->logo) {
-            $logoUrl = url($company->logo);
-            $content = str_replace('{{company.logo}}', "<img src='$logoUrl' alt='Company Logo' style='max-width: 200px;'>", $content);
+        foreach ($placeholderMap as $key => $value) {
+            $content = preg_replace('/{{\s*' . preg_quote($key, '/') . '\s*}}/i', $value ?? '', $content);
         }
 
-        // Add company signature if exists
+        // Add company logo if exists (support whitespace tolerant)
+        if ($company->logo) {
+            $logoUrl = url($company->logo);
+            $logoTag = "<img src='$logoUrl' alt='Company Logo' style='max-width: 200px;'>";
+            $content = str_replace('{{company.logo}}', $logoTag, $content);
+            $content = preg_replace('/{{\s*company\.logo\s*}}/i', $logoTag, $content);
+        }
+
+        // Add company signature if exists (support whitespace tolerant)
         if ($company->signature) {
             $signatureUrl = url($company->signature);
-            $content = str_replace('{{company.signature}}', "<img src='$signatureUrl' alt='Signature' style='max-width: 300px;'>", $content);
+            $signatureTag = "<img src='$signatureUrl' alt='Signature' style='max-width: 300px;'>";
+            $content = str_replace('{{company.signature}}', $signatureTag, $content);
+            $content = preg_replace('/{{\s*company\.signature\s*}}/i', $signatureTag, $content);
         }
 
         // Add branding if not removed

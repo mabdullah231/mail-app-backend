@@ -22,6 +22,9 @@ class User extends Authenticatable
         'email_verified_at',
         'code',
         'is_active',
+        // 2FA fields
+        'google2fa_secret',
+        'google2fa_enabled',
     ];
 
     protected $hidden = [
@@ -32,6 +35,7 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'code' => 'integer',
+        'google2fa_enabled' => 'boolean',
     ];
 
 

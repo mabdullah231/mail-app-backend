@@ -2,16 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Customer;
+use App\Models\EmailLog;
+use App\Models\Template;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Log;
-use App\Models\Customer;
-use App\Models\Template;
-use App\Models\EmailLog;
-use App\Models\CompanyDetail;
-use App\Models\Subscription;
-use App\Mail\CustomEmail;
+use Illuminate\Support\Facades\Storage;
 
 class EmailController extends Controller
 {
@@ -406,6 +403,36 @@ class EmailController extends Controller
     }
 
     /**
+     * Get email logs for authenticated company
+     */
+    public function getLogs(Request $request)
+    {
+        $user = Auth::user();
+        $company = $user->companyDetail;
+
+        if (!$company) {
+            return response()->json(['message' => 'Company details required'], 400);
+        }
+
+        $query = EmailLog::with(['customer','template'])
+            ->where('company_id', $company->id)
+            ->orderBy('created_at', 'desc');
+
+        if ($request->has('status')) {
+            $query->where('status', $request->status);
+        }
+        if ($request->has('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+        if ($request->has('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
+
+        $logs = $query->limit(100)->get();
+        return response()->json($logs);
+    }
+
+    /**
      * Get email statistics
      */
     public function getStats()
@@ -434,5 +461,60 @@ class EmailController extends Controller
         ];
 
         return response()->json($stats);
+    }
+
+    public function exportLogs(Request $request)
+    {
+        $user = Auth::user();
+        $company = $user->companyDetail;
+        if (!$company) {
+            return response()->json(['message' => 'Company details not found'], 400);
+        }
+
+        $query = EmailLog::with(['customer', 'template'])
+            ->where('company_id', $company->id);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->input('status'));
+        }
+        if ($request->filled('start_date')) {
+            $query->whereDate('created_at', '>=', $request->input('start_date'));
+        }
+        if ($request->filled('end_date')) {
+            $query->whereDate('created_at', '<=', $request->input('end_date'));
+        }
+
+        $filename = 'email_logs_' . date('Y-m-d') . '.csv';
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $callback = function () use ($query) {
+            $handle = fopen('php://output', 'w');
+            // CSV header
+            fputcsv($handle, ['Recipient', 'Subject', 'Status', 'Sent At', 'Template']);
+            // Stream rows
+            $logs = $query->orderByDesc('created_at')->limit(1000)->get();
+            foreach ($logs as $log) {
+                $recipient = optional($log->customer)->email ?? '';
+                $subject = $log->subject ?? '';
+                $status = $log->status ?? '';
+                // Safely compute sent timestamp without assuming Carbon instance
+                $sentAt = '';
+                if ($log->sent_at instanceof \Carbon\Carbon || $log->sent_at instanceof \Illuminate\Support\Carbon) {
+                    $sentAt = $log->sent_at->format('Y-m-d H:i:s');
+                } elseif (!empty($log->sent_at)) {
+                    $sentAt = (string) $log->sent_at;
+                } elseif ($log->created_at) {
+                    $sentAt = $log->created_at->format('Y-m-d H:i:s');
+                }
+                $templateName = optional($log->template)->name ?? '';
+                fputcsv($handle, [$recipient, $subject, $status, $sentAt, $templateName]);
+            }
+            fclose($handle);
+        };
+
+        return response()->stream($callback, 200, $headers);
     }
 }

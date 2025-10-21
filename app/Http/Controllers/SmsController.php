@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Customer;
+use App\Models\SmsLog;
+use App\Models\Template;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Models\Customer;
-use App\Models\Template;
-use App\Models\SmsLog;
 use App\Models\CompanyDetail;
 use Illuminate\Support\Facades\Log;
 
@@ -311,6 +311,36 @@ class SmsController extends Controller
     }
 
     /**
+     * Get SMS logs for authenticated company
+     */
+    public function getLogs(Request $request)
+    {
+        $user = Auth::user();
+        $company = $user->companyDetail;
+
+        if (!$company) {
+            return response()->json(['message' => 'Company details required'], 400);
+        }
+
+        $query = SmsLog::with(['customer','template'])
+            ->where('company_id', $company->id)
+            ->orderBy('created_at', 'desc');
+
+        if ($request->has('status')) {
+            $query->where('status', $request->status);
+        }
+        if ($request->has('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+        if ($request->has('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
+
+        $logs = $query->limit(100)->get();
+        return response()->json($logs);
+    }
+
+    /**
      * Get SMS statistics
      */
     public function getStats()
@@ -339,5 +369,59 @@ class SmsController extends Controller
         ];
 
         return response()->json($stats);
+    }
+
+    public function exportLogs(Request $request)
+    {
+        $user = Auth::user();
+        $company = $user->companyDetail;
+        if (!$company) {
+            return response()->json(['message' => 'Company details not found'], 400);
+        }
+
+        $query = SMSLog::with(['customer'])
+            ->where('company_id', $company->id);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->input('status'));
+        }
+        if ($request->filled('start_date')) {
+            $query->whereDate('created_at', '>=', $request->input('start_date'));
+        }
+        if ($request->filled('end_date')) {
+            $query->whereDate('created_at', '<=', $request->input('end_date'));
+        }
+
+        $filename = 'sms_logs_' . date('Y-m-d') . '.csv';
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $callback = function () use ($query) {
+            $handle = fopen('php://output', 'w');
+            // CSV header
+            fputcsv($handle, ['Recipient', 'Message', 'Status', 'Sent At']);
+            // Stream rows
+            $logs = $query->orderByDesc('created_at')->limit(1000)->get();
+            foreach ($logs as $log) {
+                $recipient = optional($log->customer)->phone ?? '';
+                $message = $log->message ?? '';
+                $status = $log->status ?? '';
+                // Safely compute sent timestamp without assuming Carbon instance
+                $sentAt = '';
+                if ($log->sent_at instanceof \Carbon\Carbon || $log->sent_at instanceof \Illuminate\Support\Carbon) {
+                    $sentAt = $log->sent_at->format('Y-m-d H:i:s');
+                } elseif (!empty($log->sent_at)) {
+                    $sentAt = (string) $log->sent_at;
+                } elseif ($log->created_at) {
+                    $sentAt = $log->created_at->format('Y-m-d H:i:s');
+                }
+                fputcsv($handle, [$recipient, $message, $status, $sentAt]);
+            }
+            fclose($handle);
+        };
+
+        return response()->stream($callback, 200, $headers);
     }
 }

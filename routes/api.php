@@ -1,85 +1,32 @@
 <?php
 
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\TemplateController;
+use App\Http\Controllers\NotificationRuleController;
 use App\Http\Controllers\ReminderController;
-use App\Http\Controllers\NotificationRuleController; // Add this line
 use App\Http\Controllers\EmailController;
 use App\Http\Controllers\SmsController;
 use App\Http\Controllers\SubscriptionController;
-use App\Http\Controllers\SuperAdminController;
-use App\Http\Controllers\AutomationController;
-use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\TwoFactorController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\DomainVerificationController;
+use App\Http\Controllers\AutomationController;
+use App\Http\Controllers\SuperAdminController;
+use App\Http\Controllers\DashboardController;
 
-use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Mail;
-
-Route::get('/test-email', function () {
-    Mail::raw('This is a test email from Laravel!', function ($message) {
-        $message->to('xakikak457@inilas.com')
-                ->subject('Test Email from Laravel')
-                ->from(
-                    env('MAIL_FROM_ADDRESS'), // info@macodes.dev
-                    env('MAIL_FROM_NAME')     // Email ZUS
-                );
-    });
-
-    return response()->json(['message' => 'Test email sent']);
-});
-
-// Webhook Routes (Public - no authentication required)
-Route::prefix('webhooks')->group(function () {
-    Route::post('/paypal', [PaymentController::class, 'handlePayPalWebhook']);
-    Route::post('/stripe', [PaymentController::class, 'handleStripeWebhook']);
-    Route::post('/donation', [PaymentController::class, 'handleDonationWebhook']);
-});
-
-// Authentication Routes
-Route::prefix('auth')->group(function () {
-    Route::post('/register', [AuthController::class, 'register']);
-    Route::post('/resend-email', [AuthController::class, 'resendEmail']);
-    Route::post('/verify-email', [AuthController::class, 'verifyEmail']);
-    Route::post('/login', [AuthController::class, 'login']);
-    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
-    Route::post('/verify-forgot-password', [AuthController::class, 'verifyForgotPassword']);
-    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
-    Route::post('/verify-2fa', [TwoFactorController::class, 'verify']);
-});
-
-// Protected Routes (Require Authentication only)
-Route::middleware('auth:sanctum')->group(function () {
-    // Two Factor Authentication Routes (excluded from 2FA middleware)
-    Route::prefix('2fa')->group(function () {
-        Route::get('/status', [TwoFactorController::class, 'status']);
-        Route::post('/generate-secret', [TwoFactorController::class, 'generateSecret']);
-        Route::post('/enable', [TwoFactorController::class, 'enable']);
-        Route::post('/disable', [TwoFactorController::class, 'disable']);
-    });
-});
-
-// Protected Routes (Require Authentication + 2FA)
-Route::middleware(['auth:sanctum', '2fa'])->group(function () {
-    // Profile Routes
-    Route::prefix('auth')->group(function () {
-        Route::post('/logout', [AuthController::class, 'logout']);
-        Route::post('/update-profile', [AuthController::class, 'updateProfile']);
-        Route::get('/profile', [AuthController::class, 'getProfile']);
-    });
-
-    // Dashboard Routes
-    Route::get('/dashboard/stats', [DashboardController::class, 'getStats']);
-
-    // Company Details Routes
+Route::middleware(['auth:sanctum'])->group(function () {
+    // Company Routes
     Route::prefix('company')->group(function () {
-        Route::post('/store-or-update', [CompanyController::class, 'storeOrUpdate']);
         Route::get('/details', [CompanyController::class, 'getDetails']);
+        Route::post('/store-or-update', [CompanyController::class, 'storeOrUpdate']);
         Route::get('/storage-info', [CompanyController::class, 'getStorageInfo']);
     });
+
+    // Company Dashboard Stats
+    Route::get('/dashboard/stats', [DashboardController::class, 'getStats']);
 
     // Customer Management Routes
     Route::apiResource('customers', CustomerController::class);
@@ -102,6 +49,9 @@ Route::middleware(['auth:sanctum', '2fa'])->group(function () {
         Route::post('/send-bulk', [EmailController::class, 'sendBulk']);
         Route::post('/send-to-all', [EmailController::class, 'sendToAll']);
         Route::get('/stats', [EmailController::class, 'getStats']);
+        Route::get('/logs', [EmailController::class, 'getLogs']);
+        // CSV export for company email logs
+        Route::get('/export', [EmailController::class, 'exportLogs']);
     });
 
     // SMS Sending Routes
@@ -109,33 +59,13 @@ Route::middleware(['auth:sanctum', '2fa'])->group(function () {
         Route::post('/send-single', [SmsController::class, 'sendSingle']);
         Route::post('/send-bulk', [SmsController::class, 'sendBulk']);
         Route::get('/stats', [SmsController::class, 'getStats']);
-    });
-
-    // Subscription Management Routes
-    Route::prefix('subscription')->group(function () {
-        Route::get('/current', [SubscriptionController::class, 'getCurrent']);
-        Route::post('/subscribe-branding-removal', [SubscriptionController::class, 'subscribeBrandingRemoval']);
-        Route::post('/cancel', [SubscriptionController::class, 'cancel']);
-        Route::get('/pricing', [SubscriptionController::class, 'getPricing']);
-        Route::get('/check-expiration', [SubscriptionController::class, 'checkExpiration']);
-    });
-
-    // Payment Routes
-    Route::prefix('payment')->group(function () {
-        Route::post('/paypal/create', [PaymentController::class, 'createPayPalPayment']);
-        Route::post('/stripe/create', [PaymentController::class, 'createStripePayment']);
-        Route::post('/donation/create', [PaymentController::class, 'createDonationPayment']);
-    });
-
-    // Domain Verification Routes
-    Route::prefix('domain')->group(function () {
-        Route::get('/verification-status', [DomainVerificationController::class, 'getVerificationStatus']);
-        Route::get('/dns-templates', [DomainVerificationController::class, 'getDNSTemplates']);
-        Route::post('/test-deliverability', [DomainVerificationController::class, 'testDeliverability']);
+        Route::get('/logs', [SmsController::class, 'getLogs']);
+        // CSV export for company sms logs
+        Route::get('/export', [SmsController::class, 'exportLogs']);
     });
 
     // Automation Routes
-    Route::prefix('automation')->group(function () {
+    Route::prefix('automation')->middleware(['company.rate.limit:5,1'])->group(function () {
         Route::post('/create-reminder', [AutomationController::class, 'createAutomatedReminder']);
         Route::post('/process-due-reminders', [AutomationController::class, 'processDueReminders']);
     });

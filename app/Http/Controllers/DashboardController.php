@@ -5,9 +5,8 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Customer;
 use App\Models\Template;
-use App\Models\Email;
 use App\Models\EmailLog;
-use App\Models\SMS;
+use App\Models\SMSLog;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 
@@ -19,7 +18,18 @@ class DashboardController extends Controller
     public function getStats()
     {
         $user = Auth::user();
-        $companyId = $user->company_id;
+        $company = $user->companyDetail;
+        if (!$company) {
+            return response()->json([
+                'customers' => 0,
+                'templates' => 0,
+                'emailsSent' => 0,
+                'emailsThisMonth' => 0,
+                'monthlyLimit' => 0,
+                'message' => 'Company details required'
+            ], 400);
+        }
+        $companyId = $company->id;
         
         // Get current month's start and end dates
         $startOfMonth = Carbon::now()->startOfMonth();
@@ -39,8 +49,8 @@ class DashboardController extends Controller
             ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
             ->count();
         
-        // Get monthly limit (could be from a settings table or subscription)
-        $monthlyLimit = 100; // Default value, replace with actual limit from subscription
+        // Monthly limit from subscription (fallbacks to 100)
+        $monthlyLimit = $company->subscription ? $company->subscription->getEmailLimit() : 100;
         
         return response()->json([
             'customers' => $customersCount,

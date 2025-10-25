@@ -75,19 +75,21 @@ class AuthController extends Controller
         return $code; // For testing purposes, remove in production
     }
 
-    public function resendEmail(Request $request)
+    public function resendEmailWithCode(Request $request)
     {
         $request->validate(['user_id' => 'required|numeric']);
-        
+    
         $user = User::find($request->user_id);
-        
         if (!$user) {
             return response()->json(['message' => 'User not found.'], 404);
         }
-        
-        $this->sendCode($request->user_id);
-        
-        return response()->json(['message' => 'Verification code resent.'], 200);
+    
+        $code = $this->sendCode($request->user_id);
+    
+        return response()->json([
+            'message' => 'Verification code resent.',
+            'code' => $code
+        ], 200);
     }
 
     public function verifyEmail(Request $request)

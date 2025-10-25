@@ -52,4 +52,10 @@ return [
         'mode' => env('PAYPAL_MODE', 'sandbox'), // sandbox or live
     ],
 
+    // Added Stripe config for standard usage via config('services.stripe.*')
+    'stripe' => [
+        'key' => env('STRIPE_KEY'),
+        'secret' => env('STRIPE_SECRET'),
+    ],
+
 ];

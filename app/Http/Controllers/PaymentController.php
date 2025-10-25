@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\Subscription;
 use App\Models\CompanyDetail;
 use Carbon\Carbon;
+use Stripe\StripeClient;
 
 class PaymentController extends Controller
 {
@@ -120,25 +121,41 @@ class PaymentController extends Controller
             12 => 50.00
         ];
 
+        if (!isset($pricing[$request->plan_duration])) {
+            return response()->json(['message' => 'Invalid plan duration'], 400);
+        }
+
         if ($request->amount != $pricing[$request->plan_duration]) {
             return response()->json(['message' => 'Invalid amount'], 400);
         }
 
-        // Create Stripe payment intent
-        $paymentData = [
-            'amount' => $request->amount * 100, // Convert to cents
+        // Use configured Stripe secret to create a PaymentIntent
+        $stripeSecret = config('services.stripe.secret');
+        if (empty($stripeSecret)) {
+            return response()->json(['message' => 'Stripe secret not configured'], 500);
+        }
+
+        $stripe = new StripeClient($stripeSecret);
+
+        $amountCents = (int) round($pricing[$request->plan_duration] * 100);
+
+        $intent = $stripe->paymentIntents->create([
+            'amount' => $amountCents,
             'currency' => 'usd',
+            'automatic_payment_methods' => ['enabled' => true],
             'metadata' => [
                 'company_id' => $company->id,
-                'plan_duration' => $request->plan_duration,
-                'user_id' => $user->id
+                'plan_duration' => (string) $request->plan_duration,
+                'user_id' => (string) $user->id
             ],
             'description' => 'Email Zus Branding Removal - ' . $request->plan_duration . ' month(s)'
-        ];
+        ]);
 
         return response()->json([
-            'message' => 'Stripe payment session created',
-            'payment_data' => $paymentData
+            'message' => 'Stripe PaymentIntent created',
+            'payment_intent_id' => $intent->id,
+            'client_secret' => $intent->client_secret,
+            'amount' => $amountCents,
         ]);
     }
 

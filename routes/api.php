@@ -105,6 +105,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     // Domain Verification Routes (if needed)
+    // Protected Auth routes (used by frontend after OAuth)
+    Route::prefix('auth')->group(function () {
+      Route::get('/profile', [AuthController::class, 'getProfile']);
+      Route::post('/logout', [AuthController::class, 'logout']);
+    });
 });
 
 // Stripe Webhook (public)

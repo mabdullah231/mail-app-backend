@@ -38,6 +38,10 @@ return [
         'client_id'     => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
         'redirect'      => env('GOOGLE_REDIRECT_URL'),
+        // Dev-only SSL toggle to avoid cURL error 60 on Windows
+        'guzzle'        => [
+            'verify' => env('SOCIALITE_SSL_VERIFY', true),
+        ],
     ],
 
     'twilio' => [

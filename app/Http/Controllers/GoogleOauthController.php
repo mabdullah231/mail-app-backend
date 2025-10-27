@@ -42,6 +42,7 @@ class GoogleOauthController extends Controller
         // Add company_detail key explicitly in the object
         $user->company_detail = $user->companyDetail;
     
-        return redirect("http://localhost:5173/auth/callback?token={$token}&user=" . urlencode(json_encode($user)));
+        $frontend = env('FRONTEND_URL', 'http://localhost:5173');
+        return redirect("{$frontend}/auth/callback?token={$token}&user=" . urlencode(json_encode($user)));
     }    
 }
